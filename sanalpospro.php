@@ -87,46 +87,18 @@ function sppro_check_theme_compatibility()
         }
     }
 
-
+/*
     if ($using_wc_blocks) {
         add_action('admin_notices', 'sppro_block_checkout_admin_notice');
     }
+        */
 }
 
 /**
  * Display admin notice for WooCommerce block checkout incompatibility
  */
-function sppro_block_checkout_admin_notice()
-{
-   // Ensure the popup HTML is added to the footer
-   add_action('admin_footer', 'sppro_popup_html');
-   ?>
-       <div class="notice notice-error sppro-notice" style="display: flex; align-items: center; padding: 15px 20px;">
-           <div style="margin-right: 15px;">
-               <?php
-               // Using proper WordPress way to display an image
-               $image_attributes = [
-                   'src' => esc_url(WC()->plugin_url() . '/assets/images/icons/info.svg'),
-                   'alt' => esc_attr__('Warning', 'sanalpospro-payment-module'),
-                   'width' => 48,
-                   'height' => 48,
-               ];
-               
-               echo '<img';
-               foreach ($image_attributes as $name => $value) {
-                   echo ' ' . esc_attr($name) . '="' . esc_attr($value) . '"';
-               }
-               echo '>';
-               ?>
-           </div>
-           <div>
-               <p style="font-size: 16px; margin: 0; line-height: 1.5;"><strong><?php esc_html_e('SanalPosPro Payment Gateway Warning', 'sanalpospro-payment-module'); ?></strong>: <?php esc_html_e('You need to switch to Classic Checkout view!', 'sanalpospro-payment-module'); ?> 
-                   <button id="sppro-show-instructions" class="button button-primary" style="margin-left: 15px; font-size: 14px; padding: 5px 15px;"><?php esc_html_e('How to do it?', 'sanalpospro-payment-module'); ?></button>
-               </p>
-           </div>
-       </div>
-   <?php
-}
+
+
 
 /**
  * Add popup HTML to admin footer
@@ -346,6 +318,7 @@ function sppro_setup_gateway_class()
          */
         public function process_payment($order_id)
         {
+
             $order = wc_get_order($order_id);
             $pay_for_order = isset($_GET['pay_for_order']) && sanitize_text_field(wp_unslash($_GET['pay_for_order']));
             $xfvv = wp_create_nonce('sppro_internal_api_request');
@@ -776,3 +749,26 @@ function sppro_get_template($template_name, $args = array(), $template_path = ''
 
     include($template);
 }
+
+
+/**
+ * WooCommerce Blocks (block checkout) entegrasyonu
+ * Payment method'ı doğrudan Blocks registry'ye kaydediyoruz.
+ */
+add_action( 'woocommerce_blocks_payment_method_type_registration', 'sppro_register_blocks_integration' );
+
+function sppro_register_blocks_integration( $registry ) {
+
+    if ( ! class_exists( '\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType' ) ) {
+        return;
+    }
+
+    if ( ! class_exists( 'SPPRO_WC_Blocks_Payment_Method' ) ) {
+        require_once SPPRO_PLUGIN_DIR . 'includes/class-sppro-blocks.php';
+        // veya: require_once dirname( __FILE__ ) . '/includes/class-sppro-blocks.php';
+    }
+
+    $registry->register( new SPPRO_WC_Blocks_Payment_Method() );
+}
+
+
