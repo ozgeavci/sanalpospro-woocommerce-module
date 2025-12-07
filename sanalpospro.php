@@ -52,7 +52,8 @@ add_action('admin_enqueue_scripts', 'sppro_enqueue_admin_assets');
 /**
  * Enqueue admin assets
  */
-function sppro_enqueue_admin_assets() {
+function sppro_enqueue_admin_assets()
+{
     wp_enqueue_style('sppro-admin-popup', SPPRO_PLUGIN_URL . 'assets/css/admin-popup.css', array(), SPPRO_VERSION);
     wp_enqueue_script('sppro-admin-popup', SPPRO_PLUGIN_URL . 'assets/js/admin-popup.js', array('jquery'), SPPRO_VERSION, true);
 }
@@ -73,7 +74,8 @@ function sppro_check_theme_compatibility()
 
 
     if (class_exists('WC_Blocks_Utils') && method_exists('WC_Blocks_Utils', 'is_block_checkout_enabled')) {
-        $using_wc_blocks = \WC_Blocks_Utils::is_block_checkout_enabled();
+        $using_wc_blocks = \WC_Blocks_Utils::is_block_checkout_enabled
+();
     }
 
 
@@ -87,7 +89,7 @@ function sppro_check_theme_compatibility()
         }
     }
 
-/*
+    /*
     if ($using_wc_blocks) {
         add_action('admin_notices', 'sppro_block_checkout_admin_notice');
     }
@@ -103,8 +105,9 @@ function sppro_check_theme_compatibility()
 /**
  * Add popup HTML to admin footer
  */
-function sppro_popup_html() {
-    ?>
+function sppro_popup_html()
+{
+?>
     <div class="sppro-popup-overlay" id="sppro-popup">
         <div class="sppro-popup-content">
             <a href="#" class="sppro-popup-close">&times;</a>
@@ -120,9 +123,9 @@ function sppro_popup_html() {
             <p style="font-size: 15px; line-height: 1.6;"><?php esc_html_e('After these steps, the Classic payment view will be active and you can use our plugin.', 'sanalpospro-payment-module'); ?></p>
         </div>
     </div>
-    <?php
-    }
-    
+<?php
+}
+
 /**
  * Plugin activation function
  * Checks requirements and sets up default settings
@@ -313,69 +316,73 @@ function sppro_setup_gateway_class()
             ));
         }
 
+
         /**
-         * Process payment
+         * Process the payment
          */
         public function process_payment($order_id)
         {
 
             $order = wc_get_order($order_id);
-            $pay_for_order = isset($_GET['pay_for_order']) && sanitize_text_field(wp_unslash($_GET['pay_for_order']));
-            $xfvv = wp_create_nonce('sppro_internal_api_request');
+
+            // Generate nonce for payment confirmation
             $receipt_nonce = wp_create_nonce('sppro_payment_confirmation');
+
             try {
-                $api = new \Eticsoft\Sanalpospro\InternalApi();
+
+                // Call Internal API to create SanalPosPRO payment link
+                $api  = new \Eticsoft\Sanalpospro\InternalApi();
                 $data = [
-                    'order_id' => $order_id,
-                    'receipt_nonce' => $receipt_nonce
+                    'order_id'      => $order_id,
+                    'receipt_nonce' => $receipt_nonce,
                 ];
-                $res = ($api->run('CreatePaymentLink', $data))->getResponse();
 
-                if ($res['status'] !== 'success') {
-                    throw new Exception(sprintf(
-                        '<div>%s: %s</div> <div>%s</div>',
-                        esc_html__('Error Code', 'sanalpospro-payment-module'),
-                        esc_html($res['status']),
-                        esc_html($res['message'])
-                    ));
-                }
-                $order_confirmation_url = add_query_arg(
-                    array(
-                        'order_id' => $order_id,
-                        'key' => $order->get_order_key(),
-                        '_wpnonce' => $receipt_nonce
-                    ),
-                    $order->get_checkout_payment_url(true)
-                );
+                $response = $api->run('CreatePaymentLink', $data)->getResponse();
 
-                if ($pay_for_order) {
-                    return array(
-                        'result' => 'success',
-                        'redirect' => $order->get_checkout_payment_url(true)
-                    );
+                // Validate API response
+                if (empty($response['status']) || $response['status'] !== 'success') {
+                    return [
+                        'result'  => 'failure',
+                        'message' => $response['message'] ?? 'SanalPos payment error.',
+                    ];
                 }
 
+                // Extract payment link
+                $payment_link = $response['data']['payment_link'] ?? '';
 
-                ob_start();
-                sppro_get_template('checkout/payment-iframe.php', array(
-                    'payment_link' => $res['data']['payment_link']
-                ));
-                $iframe_html = ob_get_clean();
+                if (empty($payment_link)) {
+                    return [
+                        'result'  => 'failure',
+                        'message' => 'Payment link missing from SanalPos response.',
+                    ];
+                }
 
-                return array(
-                    'result' => 'success',
-                    'messages' => 'Payment link created successfully',
-                    'iframe_html' => $iframe_html,
-                    'redirect_url' => $order_confirmation_url
-                ); 
-            } catch (Exception $e) {
-                wc_add_notice($e->getMessage(), 'error');
-                return array(
-                    'result' => 'failure',
-                    'messages' => $e->getMessage()
+                // Store link for iframe usage in checkout
+                update_post_meta($order_id, '_sppro_payment_link', $payment_link);
+
+                // Redirect to checkout with iframe parameters
+                $redirect_url = add_query_arg(
+                    [
+                        'sppro_iframe' => 1,
+                        'order_id'     => $order_id,
+                    ],
+                    wc_get_checkout_url()
                 );
+
+                return [
+                    'result'   => 'success',
+                    'redirect' => $redirect_url,
+                ];
+            } catch (\Exception $e) {
+
+                return [
+                    'result'  => 'failure',
+                    'message' => $e->getMessage(),
+                ];
             }
         }
+
+
 
         /**
          * Receipt page
@@ -383,40 +390,40 @@ function sppro_setup_gateway_class()
 
         public function receipt_page($order_id)
         {
-         
-          
+
+
             // Verify nonce to prevent CSRF attacks
             if (!isset($_GET['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'sppro_payment_confirmation')) {
                 wp_die(esc_html__('Security check failed. Please try again.', 'sanalpospro-payment-module'));
             }
-         
+
 
             // Verify user has permission to view this order
             $order = wc_get_order(absint($order_id));
             if (!$order) {
                 wp_die(esc_html__('Invalid order.', 'sanalpospro-payment-module'));
             }
-           
+
 
             // Check if user has permission to view this order
             if (!current_user_can('manage_woocommerce') && $order->get_customer_id() !== get_current_user_id()) {
                 wp_die(esc_html__('You do not have permission to view this order.', 'sanalpospro-payment-module'));
             }
-          
+
 
             // Sanitize and validate input parameters
             $p_id = isset($_GET['p_id']) ? sanitize_text_field(wp_unslash($_GET['p_id'])) : null;
             $id = empty($id) ? $order_id : $id;
 
-            
-           
-           
+
+
+
 
             if (!$id) {
                 wp_die(esc_html__('Invalid payment ID.', 'sanalpospro-payment-module'));
             }
 
-          
+
 
             try {
                 $api = new \Eticsoft\Sanalpospro\InternalApi();
@@ -429,7 +436,7 @@ function sppro_setup_gateway_class()
                 $apiReq = $api->getInstance()->run('confirmOrder', $data);
                 $response = $apiReq->getResponse();
 
-                
+
 
                 if ($response['status'] !== 'success') {
                     $order->update_status('failed', __('Payment failed', 'sanalpospro-payment-module'));
@@ -473,18 +480,19 @@ function sppro_setup_gateway_class()
         /**
          * Show payment warning in admin
          */
-        public function show_payment_warning($order) {
+        public function show_payment_warning($order)
+        {
             // Static flag to prevent duplicate warnings
             static $warning_shown = [];
-            
+
             // Create a unique ID for this order
             $order_id = $order->get_id();
-            
+
             // Check if warning already shown for this order
             if (isset($warning_shown[$order_id])) {
                 return;
             }
-            
+
             if ($order->get_payment_method() === 'sanalpospro') {
                 // Only show warning for orders with completed payment status
                 $completed_statuses = array(
@@ -492,16 +500,16 @@ function sppro_setup_gateway_class()
                     'completed',
                     'processing'
                 );
-                
+
                 $order_status = $order->get_status();
-                
+
                 if (in_array($order_status, $completed_statuses)) {
                     echo '<div class="notice notice-warning sppro-warning" style="padding: 10px; margin: 10px 0;">
                         <h4>' . esc_html__('SanalPosPRO Payment Warning', 'sanalpospro-payment-module') . '</h4>
                         <p>' . esc_html__('Payment was processed through SanalPosPRO', 'sanalpospro-payment-module') . '</p>
                         <p>' . esc_html__('Please check the payment status and verify with your bank/payment institution.', 'sanalpospro-payment-module') . '</p>
                     </div>';
-                    
+
                     // Mark this order as having shown the warning
                     $warning_shown[$order_id] = true;
                 }
@@ -649,12 +657,12 @@ function sppro_get_card_image($card_key, $args = array())
     $card_file = sanitize_file_name($card_key) . '.png';
     $image_path = SPPRO_PLUGIN_DIR . 'assets/images/cards/' . $card_file;
     $image_url = SPPRO_PLUGIN_URL . 'assets/images/cards/' . $card_file;
-    
+
     // If the specific card image doesn't exist, use default
     if (!file_exists($image_path)) {
         $image_url = SPPRO_PLUGIN_URL . 'assets/images/cards/default.png';
     }
-    
+
     $default_args = array(
         'src' => esc_url($image_url),
         'alt' => esc_attr($card_key),
@@ -752,23 +760,110 @@ function sppro_get_template($template_name, $args = array(), $template_path = ''
 
 
 /**
- * WooCommerce Blocks (block checkout) entegrasyonu
- * Payment method'ı doğrudan Blocks registry'ye kaydediyoruz.
+ * WooCommerce Blocks (block checkout) entegrasyonu.
  */
-add_action( 'woocommerce_blocks_payment_method_type_registration', 'sppro_register_blocks_integration' );
+add_action(
+    'woocommerce_blocks_payment_method_type_registration',
+    'sppro_register_blocks_integration'
+);
 
-function sppro_register_blocks_integration( $registry ) {
+function sppro_register_blocks_integration($payment_method_registry)
+{
 
-    if ( ! class_exists( '\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType' ) ) {
+    // Blocks plugin yüklü değilse çık
+    if (! class_exists('\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType')) {
         return;
     }
 
-    if ( ! class_exists( 'SPPRO_WC_Blocks_Payment_Method' ) ) {
+    // Blocks payment method class'ını yükle
+    if (! class_exists('SPPRO_WC_Blocks_Payment_Method')) {
         require_once SPPRO_PLUGIN_DIR . 'includes/class-sppro-blocks.php';
-        // veya: require_once dirname( __FILE__ ) . '/includes/class-sppro-blocks.php';
     }
 
-    $registry->register( new SPPRO_WC_Blocks_Payment_Method() );
+    // Registry'e kaydet
+    $payment_method_registry->register(
+        new SPPRO_WC_Blocks_Payment_Method()
+    );
 }
 
 
+/**
+ * WooCommerce Blocks checkout için SanalPosPRO iframe modal'ı
+ */
+add_action('wp_footer', 'sppro_render_blocks_iframe_modal');
+
+function sppro_render_blocks_iframe_modal()
+{
+
+    // Sadece checkout sayfasında
+    if (! function_exists('is_checkout') || ! is_checkout()) {
+        return;
+    }
+
+    // URL parametresi yoksa iframe açma
+    if (! isset($_GET['sppro_iframe'], $_GET['order_id'])) {
+        return;
+    }
+
+    $order_id = absint($_GET['order_id']);
+    if (! $order_id) {
+        return;
+    }
+
+    // Meta’dan payment link çek
+    $payment_link = get_post_meta($order_id, '_sppro_payment_link', true);
+    if (empty($payment_link)) {
+        return;
+    }
+
+?>
+    <div id="sppro-modal-overlay" style="
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    ">
+        <div style="
+            background: #fff;
+            max-width: 900px;
+            width: 100%;
+            max-height: 90vh;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        ">
+            <button id="sppro-modal-close" style="
+                position:absolute;
+                top:8px;
+                right:12px;
+                border:none;
+                background:transparent;
+                font-size:22px;
+                cursor:pointer;
+                line-height:1;
+            ">&times;</button>
+
+            <iframe
+                src="<?php echo esc_url($payment_link); ?>"
+                style="width: 100%; height: 80vh; border:0;"
+                allowtransparency="true"></iframe>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var closeBtn = document.getElementById('sppro-modal-close');
+            var overlay = document.getElementById('sppro-modal-overlay');
+            if (closeBtn && overlay) {
+                closeBtn.addEventListener('click', function() {
+                    overlay.remove();
+                });
+            }
+        })();
+    </script>
+<?php
+}
