@@ -74,8 +74,7 @@ function sppro_check_theme_compatibility()
 
 
     if (class_exists('WC_Blocks_Utils') && method_exists('WC_Blocks_Utils', 'is_block_checkout_enabled')) {
-        $using_wc_blocks = \WC_Blocks_Utils::is_block_checkout_enabled
-();
+        $using_wc_blocks = \WC_Blocks_Utils::is_block_checkout_enabled();
     }
 
 
@@ -318,70 +317,71 @@ function sppro_setup_gateway_class()
 
 
         /**
-         * Process the payment
+         * Process payment
          */
         public function process_payment($order_id)
         {
 
             $order = wc_get_order($order_id);
 
-            // Generate nonce for payment confirmation
+            // Nonce for SPPRO payment confirmation
             $receipt_nonce = wp_create_nonce('sppro_payment_confirmation');
 
             try {
 
-                // Call Internal API to create SanalPosPRO payment link
+                // Initialize EticSoft Internal API client
                 $api  = new \Eticsoft\Sanalpospro\InternalApi();
-                $data = [
+                $data = array(
                     'order_id'      => $order_id,
                     'receipt_nonce' => $receipt_nonce,
-                ];
+                );
 
+                // Request CreatePaymentLink from SanalPosPRO
                 $response = $api->run('CreatePaymentLink', $data)->getResponse();
 
-                // Validate API response
-                if (empty($response['status']) || $response['status'] !== 'success') {
-                    return [
+                // Validate API response status
+                if (! isset($response['status']) || $response['status'] !== 'success') {
+                    return array(
                         'result'  => 'failure',
                         'message' => $response['message'] ?? 'SanalPos payment error.',
-                    ];
+                    );
                 }
 
-                // Extract payment link
+                // Extract the payment link from response
                 $payment_link = $response['data']['payment_link'] ?? '';
 
                 if (empty($payment_link)) {
-                    return [
+                    return array(
                         'result'  => 'failure',
-                        'message' => 'Payment link missing from SanalPos response.',
-                    ];
+                        'message' => 'Payment link not found in SanalPos response.',
+                    );
                 }
 
-                // Store link for iframe usage in checkout
+                // Save payment link as order meta to be used in iframe view
                 update_post_meta($order_id, '_sppro_payment_link', $payment_link);
 
-                // Redirect to checkout with iframe parameters
+                // Redirect customer back to checkout with special iframe parameters
                 $redirect_url = add_query_arg(
-                    [
+                    array(
                         'sppro_iframe' => 1,
                         'order_id'     => $order_id,
-                    ],
+                    ),
                     wc_get_checkout_url()
                 );
 
-                return [
+                // Notify WooCommerce the payment step was successful
+                return array(
                     'result'   => 'success',
                     'redirect' => $redirect_url,
-                ];
+                );
             } catch (\Exception $e) {
 
-                return [
+                return array(
                     'result'  => 'failure',
                     'message' => $e->getMessage(),
-                ];
+                );
             }
         }
-
 
 
         /**
